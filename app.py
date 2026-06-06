@@ -85,3 +85,51 @@ def main():
     
     agg_df['Normalized_Spend'] = norm_spend
     agg_df['Weighted_Risk'] = weighted_risk
+    
+    # Применяем логику квадрантов Кралича
+    agg_df['Kraljic_Quadrant'] = agg_df.apply(
+        lambda x: get_kraljic_quadrant(x['Normalized_Spend'], x['Weighted_Risk'], model['mean_spend'], model['mean_risk']), axis=1
+    )
+
+    # --- VISUALIZATION ---
+    plot_df = agg_df.copy()
+    if search_id and search_id in plot_df['Supplier_ID'].values:
+        plot_df = plot_df[plot_df['Supplier_ID'] == search_id]
+
+    fig = px.scatter(
+        plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
+        hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1],
+        category_orders={"Kraljic_Quadrant": ["Strategic", "Leverage", "Bottleneck", "Non-Critical"]}
+    )
+    
+    # Добавляем линии средних значений для наглядности
+    fig.add_vline(x=model['mean_spend'], line_dash="dash", line_color="gray")
+    fig.add_hline(y=model['mean_risk'], line_dash="dash", line_color="gray")
+    
+    fig.update_traces(marker=dict(size=14, line=dict(width=1, color='White')))
+    fig.update_layout(height=600, width=900)
+    
+    event = st.plotly_chart(fig, on_select="rerun")
+    
+    # Обработка выбора
+    if event and event["selection"]["points"]:
+        st.session_state['selected_point'] = event["selection"]["points"][0]["customdata"][0]
+    
+    sel_id = st.session_state['selected_point']
+    if search_id and search_id in agg_df['Supplier_ID'].values:
+        sel_id = search_id
+
+    # --- DETAILS ---
+    if sel_id:
+        data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
+        st.write(f"### Supplier: {data['Supplier_ID']}")
+        st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
+        for r in RISK_COLS:
+            score = data[r]
+            st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {score:.2f}")
+            st.progress(score)
+    else:
+        st.info("Click a point or enter a Supplier ID to see details.")
+
+if __name__ == "__main__":
+    main()
