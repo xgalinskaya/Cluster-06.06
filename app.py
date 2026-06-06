@@ -78,10 +78,10 @@ def main():
     total_weight = sum(new_weights)
 
     if total_weight != 100:
-        st.sidebar.error(f"⚠️ Сумма весов должна быть 100! Сейчас: {total_weight}")
+        st.sidebar.error(f"⚠️ The sum of the weights must be 100! Current sum: {total_weight}")
         st.stop() # Блокируем выполнение ниже, если сумма не 100
     else:
-        st.sidebar.success("✅ Сумма весов верна")
+        st.sidebar.success("✅ The sum of the weights is correct")
     
     weights = np.array(new_weights) / 100
 
