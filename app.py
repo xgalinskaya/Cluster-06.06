@@ -5,14 +5,14 @@ import plotly.express as px
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
-# Настройка страницы
+# Page Configuration
 st.set_page_config(page_title="Kraljic Matrix Dashboard", layout="wide")
 
 @st.cache_data
 def load_data():
-    # Убедитесь, что сепаратор и десятичный разделитель соответствуют вашему CSV
+    # Make sure separator and decimal match your CSV
     df = pd.read_csv('Merged dataset with Scores.csv', sep=';', decimal=',')
-    # Очистка колонки трат
+    # Cleaning the 'Order Value USD' column
     df['Order Value USD'] = (
         df['Order Value USD'].astype(str).str.replace(' ', '', regex=False)
         .str.replace(',', '.', regex=False).astype(float)
@@ -23,8 +23,8 @@ def main():
     st.title("Sustainable Supply Chain: Kraljic Matrix")
     df = load_data()
 
-    # --- ПАНЕЛЬ ВВОДА ВЕСОВ ---
-    st.sidebar.header("Веса рисков (в сумме 100)")
+    # --- WEIGHT INPUT SIDEBAR ---
+    st.sidebar.header("Risk Weights (sum = 100)")
     w1 = st.sidebar.number_input("Performance Quality", 0, 100, 20)
     w2 = st.sidebar.number_input("Financial Risk", 0, 100, 20)
     w3 = st.sidebar.number_input("Sustainability Score", 0, 100, 20)
@@ -32,11 +32,11 @@ def main():
     w5 = st.sidebar.number_input("Political Risk", 0, 100, 20)
 
     if (w1 + w2 + w3 + w4 + w5) != 100:
-        st.error("Веса должны составлять 100%.")
+        st.error("Weights must sum to 100%.")
         st.stop()
 
-    # Список колонок рисков из вашего файла
-risk_cols = [
+    # Risk columns list
+    risk_cols = [
         'Performance_Quality_Risk_Score', 
         'Financial_Risk_Score', 
         'Nachhaltigkeit_Risk_score', 
@@ -44,8 +44,9 @@ risk_cols = [
         'Risikoscore_Political_Risk_Score'
     ]
 
-    # --- ОБУЧЕНИЕ МОДЕЛИ ---
-        if 'kmeans_model' not in st.session_state:
+    # --- MODEL TRAINING ---
+    # Corrected indentation here
+    if 'kmeans_model' not in st.session_state:
         agg_dict = {'Order Value USD': 'sum'}
         for col in risk_cols:
             agg_dict[col] = 'mean'
@@ -65,7 +66,7 @@ risk_cols = [
         st.session_state['scaler'] = scaler_s
         st.session_state['weights'] = weights
 
-    # --- АГРЕГАЦИЯ И ПРЕДСКАЗАНИЕ ---
+    # --- AGGREGATION AND PREDICTION ---
     agg_dict = {'Order Value USD': 'sum'}
     for col in risk_cols:
         agg_dict[col] = 'mean'
@@ -77,7 +78,7 @@ risk_cols = [
     
     agg_df['Cluster_ID'] = st.session_state['kmeans_model'].predict(agg_df[['Normalized_Spend', 'Weighted_Risk']])
 
-    # Называем кластеры
+    # Name the clusters
     centroids = st.session_state['kmeans_model'].cluster_centers_
     cluster_map = {i: "" for i in range(4)}
     for i in range(4):
@@ -89,7 +90,7 @@ risk_cols = [
     
     agg_df['Kraljic_Quadrant'] = agg_df['Cluster_ID'].map(cluster_map)
 
-    # --- ВИЗУАЛИЗАЦИЯ ---
+    # --- VISUALIZATION ---
     fig = px.scatter(agg_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant", hover_data=['Supplier_ID'])
     st.plotly_chart(fig)
 
