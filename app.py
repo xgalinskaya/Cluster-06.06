@@ -65,12 +65,11 @@ def main():
 
     search_id = st.sidebar.text_input("Search Supplier ID:", key='search_id')
     
-    # --- RISK WEIGHTS С ВАЛИДАЦИЕЙ ---
+    # --- RISK WEIGHTS ---
     st.sidebar.header("Risk Weights")
     new_weights = []
     for i, col in enumerate(RISK_COLS):
         label = col.replace('_Score', '').replace('_', ' ')
-        # step=5 заставляет выбирать только кратные 5 числа
         val = st.sidebar.number_input(label, 0, 100, st.session_state['weights'][i], step=5)
         new_weights.append(val)
     
@@ -79,7 +78,7 @@ def main():
 
     if total_weight != 100:
         st.sidebar.error(f"⚠️ The sum of the weights must be 100! Current sum: {total_weight}")
-        st.stop() # Блокируем выполнение ниже, если сумма не 100
+        st.stop()
     else:
         st.sidebar.success("✅ The sum of the weights is correct")
     
@@ -91,7 +90,7 @@ def main():
         subset = subset[subset['Month'].astype(str) == selected_timeframe]
     
     agg_df = subset.groupby('Supplier_ID').agg(
-        {'Order Value USD': 'sum', **{col: 'mean' for col in RISK_COLS}}
+        {'Order Value USD': 'sum', 'Country': 'first', **{col: 'mean' for col in RISK_COLS}}
     ).reset_index()
     
     model = models[selected_cat]
@@ -129,9 +128,11 @@ def main():
     if search_id and search_id in agg_df['Supplier_ID'].values:
         sel_id = search_id
 
+    # --- DETAILS ---
     if sel_id:
         data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
         st.write(f"### Supplier: {data['Supplier_ID']}")
+        st.write(f"**Country**: {data.get('Country', 'N/A')}") # Интегрировано
         st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
         for r in RISK_COLS:
             score = data[r]
