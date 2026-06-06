@@ -41,7 +41,7 @@ def main():
         'Financial_Risk_Score', 
         'Nachhaltigkeit_Risk_score', 
         'Standards Risks_Score', 
-        'Risikoscore_Political_Risk_Score'
+        'Political_Risk_Score'
     ]
 
     # --- MODEL TRAINING ---
