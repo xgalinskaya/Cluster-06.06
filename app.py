@@ -7,6 +7,15 @@ from sklearn.preprocessing import MinMaxScaler
 
 st.set_page_config(page_title="Kraljic Matrix Dashboard", layout="wide")
 
+# Глобальные настройки рисков
+RISK_COLS = [
+    'Performance_Quality_Risk_Score', 
+    'Financial_Risk_Score', 
+    'Nachhaltigkeit_Risk_score', 
+    'Standards Risks_Score', 
+    'Political_Risk_Score'
+]
+
 @st.cache_data
 def load_data():
     df = pd.read_csv('Merged dataset with Scores.csv', sep=';', decimal=',')
@@ -16,75 +25,92 @@ def load_data():
     )
     return df
 
-def main():
-    st.title("Sustainable Supply Chain: Kraljic Matrix")
-    df = load_data()
-
-    risk_cols = [
-        'Performance_Quality_Risk_Score', 
-        'Financial_Risk_Score', 
-        'Nachhaltigkeit_Risk_score', 
-        'Standards Risks_Score', 
-        'Political_Risk_Score'
-    ]
-
-    # --- 1. ОБУЧЕНИЕ НА ГОДОВЫХ ДАННЫХ (Фиксируем рамки) ---
-    if 'kmeans' not in st.session_state:
-        agg_full = df.groupby('Supplier_ID').agg({**{'Order Value USD': 'sum'}, **{c: 'mean' for c in risk_cols}})
-        scaler = MinMaxScaler()
-        agg_full['Normalized_Spend'] = scaler.fit_transform(agg_full[['Order Value USD']])
-        weights = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
-        agg_full['Weighted_Risk'] = (agg_full[risk_cols].values * weights).sum(axis=1)
+@st.cache_resource
+def train_category_models(df):
+    """Обучает отдельную модель для каждой Product_Category."""
+    models_by_category = {}
+    categories = df['Product_Category'].unique()
+    
+    for category in categories:
+        cat_df = df[df['Product_Category'] == category].groupby('Supplier_ID').agg(
+            {'Order Value USD': 'sum', **{col: 'mean' for col in RISK_COLS}}
+        )
         
+        # Fit Scaler
+        scaler = MinMaxScaler()
+        normalized_spend = scaler.fit_transform(cat_df[['Order Value USD']])
+        
+        # Fit KMeans
+        features = np.column_stack([normalized_spend, cat_df[RISK_COLS].mean(axis=1)])
         kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
-        kmeans.fit(agg_full[['Normalized_Spend', 'Weighted_Risk']])
-        st.session_state.update({'kmeans': kmeans, 'scaler': scaler, 'weights': weights})
+        kmeans.fit(features)
+        
+        models_by_category[category] = {'scaler': scaler, 'kmeans': kmeans}
+    return models_by_category
 
-    # --- 2. SIDEBAR ---
+def main():
+    st.title("Sustainable Supply Chain: Category-Specific Kraljic Matrix")
+    df = load_data()
+    models = train_category_models(df)
+
+    # --- SIDEBAR FILTERS ---
+    st.sidebar.header("Configuration")
+    
+    # Product Category Filter (Mandatory)
+    cat_list = sorted(df['Product_Category'].unique().tolist())
+    selected_cat = st.sidebar.selectbox("Select Product Category", cat_list, index=0)
+    
+    # Timeframe Filter
+    timeframe_options = ["All Months"] + sorted(df['Month'].unique().astype(str).tolist())
+    selected_timeframe = st.sidebar.selectbox("Select Timeframe", timeframe_options)
+
+    # Risk Weights
     st.sidebar.header("Risk Weights")
-    w1, w2, w3, w4, w5 = [st.sidebar.number_input(l, 0, 100, 20) for l in ["Perf. Quality", "Financial", "Sustainability", "Standards", "Political"]]
-    
-    if (w1 + w2 + w3 + w4 + w5) == 100:
-        st.session_state['weights'] = np.array([w1, w2, w3, w4, w5]) / 100
-    
-    selected_month = st.sidebar.selectbox("Select Month", sorted(df['Month'].unique()))
-    
-    # --- 3. ПРИМЕНЕНИЕ К МЕСЯЧНЫМ ДАННЫМ ---
-    df_filtered = df[df['Month'] == selected_month].copy()
-    agg_df = df_filtered.groupby('Supplier_ID').agg({**{'Order Value USD': 'sum'}, **{c: 'mean' for c in risk_cols}}).reset_index()
-    
-    # Защита от выхода за рамки 0-1 с помощью clip
-    norm_spend = st.session_state['scaler'].transform(agg_df[['Order Value USD']])
-    agg_df['Normalized_Spend'] = np.clip(norm_spend, 0, 1)
-    
-    agg_df['Weighted_Risk'] = (agg_df[risk_cols].values * st.session_state['weights']).sum(axis=1)
-    agg_df['Cluster_ID'] = st.session_state['kmeans'].predict(agg_df[['Normalized_Spend', 'Weighted_Risk']])
+    w_vals = [st.sidebar.number_input(col.replace('_', ' '), 0, 100, 20) for col in RISK_COLS]
+    weights = np.array(w_vals) / 100
 
-    # Названия и цвета
+    # --- DATA PIPELINE ---
+    subset = df[df['Product_Category'] == selected_cat].copy()
+    if selected_timeframe != "All Months":
+        subset = subset[subset['Month'].astype(str) == selected_timeframe]
+    
+    agg_df = subset.groupby('Supplier_ID').agg(
+        {'Order Value USD': 'sum', **{col: 'mean' for col in RISK_COLS}}
+    ).reset_index()
+    
+    # Transformation using Category-specific model
+    model_bundle = models[selected_cat]
+    
+    # Clip prevents negative values if monthly data is outside annual bounds
+    norm_spend = np.clip(model_bundle['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
+    weighted_risk = (agg_df[RISK_COLS].values * weights).sum(axis=1)
+    
+    # Prediction
+    agg_df['Normalized_Spend'] = norm_spend
+    agg_df['Weighted_Risk'] = weighted_risk
+    agg_df['Cluster_ID'] = model_bundle['kmeans'].predict(np.column_stack([norm_spend, weighted_risk]))
+
+    # Mapping
     cluster_names = {0: "Non-Critical", 1: "Strategic", 2: "Leverage", 3: "Bottleneck"}
     agg_df['Kraljic_Quadrant'] = agg_df['Cluster_ID'].map(cluster_names)
 
-    # --- 4. ВИЗУАЛИЗАЦИЯ ---
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        fig = px.scatter(
-            agg_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant", 
-            hover_data=['Supplier_ID'],
-            category_orders={"Kraljic_Quadrant": ["Non-Critical", "Strategic", "Leverage", "Bottleneck"]}
-        )
-        event = st.plotly_chart(fig, on_select="rerun")
-
-    with col2:
-        st.subheader("Supplier Details")
-        if event and event["selection"]["points"]:
-            sel_id = event["selection"]["points"][0]["customdata"][0]
-            data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
-            st.write(f"**Supplier:** {data['Supplier_ID']}")
-            st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
-            for r in risk_cols:
-                st.progress(data[r], text=r.replace('_Score', ''))
-        else:
-            st.info("Click on a point.")
+    # --- VISUALIZATION ---
+    fig = px.scatter(
+        agg_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
+        hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1],
+        category_orders={"Kraljic_Quadrant": list(cluster_names.values())}
+    )
+    
+    event = st.plotly_chart(fig, on_select="rerun")
+    
+    # Supplier Details Logic
+    if event and event["selection"]["points"]:
+        sel_id = event["selection"]["points"][0]["customdata"][0]
+        data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
+        st.write(f"### Supplier: {data['Supplier_ID']}")
+        st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
+        for r in RISK_COLS:
+            st.progress(data[r], text=r.replace('_Score', ''))
 
 if __name__ == "__main__":
     main()
