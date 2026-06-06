@@ -10,7 +10,9 @@ st.set_page_config(page_title="Kraljic Matrix Dashboard", layout="wide")
 
 @st.cache_data
 def load_data():
+    # Убедитесь, что сепаратор и десятичный разделитель соответствуют вашему CSV
     df = pd.read_csv('Merged dataset with Scores.csv', sep=';', decimal=',')
+    # Очистка колонки трат
     df['Order Value USD'] = (
         df['Order Value USD'].astype(str).str.replace(' ', '', regex=False)
         .str.replace(',', '.', regex=False).astype(float)
@@ -33,51 +35,49 @@ def main():
         st.error("Веса должны составлять 100%.")
         st.stop()
 
-    # --- ОБУЧЕНИЕ МОДЕЛИ 1 РАЗ (ПО ВСЕМ ДАННЫМ) ---
+    # Список колонок рисков из вашего файла
+    risk_cols = [
+        'Performance_Quality_Risk_Score', 
+        'Financial_Risk_Score', 
+        'Nachhaltigkeit_Risk_score', 
+        'Standards Risks_Score', 
+        'Risikoscore_Political_Risk_Score'
+    ]
+
+    # --- ОБУЧЕНИЕ МОДЕЛИ ---
     if 'kmeans_model' not in st.session_state:
-        # Агрегируем данные по году (все имеющиеся данные)
-        base_df = df.groupby('Supplier_ID').agg({
-            'Order Value USD': 'sum',
-            'Performance_Quality_Score': 'mean',
-            'Financial_Risk_Score_Quarterly': 'mean',
-            'Nachhaltigkeitsscore': 'mean',
-            'Standards Risks_Score': 'mean',
-            'Risikoscore Political': 'mean'
-        })
+        agg_dict = {'Order Value USD': 'sum'}
+        for col in risk_cols:
+            agg_dict[col] = 'mean'
+            
+        base_df = df.groupby('Supplier_ID').agg(agg_dict)
         
-        # Нормализация
         scaler_s = MinMaxScaler()
         base_df['Normalized_Spend'] = scaler_s.fit_transform(base_df[['Order Value USD']])
         
-        # Расчет риска
-        risk_cols = ['Performance_Quality_Score', 'Financial_Risk_Score_Quarterly', 'Nachhaltigkeitsscore', 'Standards Risks_Score', 'Risikoscore Political']
         weights = np.array([w1, w2, w3, w4, w5]) / 100
         base_df['Weighted_Risk'] = (base_df[risk_cols].values * weights).sum(axis=1)
         
-        # Обучение K-means
         kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
         kmeans.fit(base_df[['Normalized_Spend', 'Weighted_Risk']])
         
-        # Сохраняем модель и центроиды в сессию
         st.session_state['kmeans_model'] = kmeans
         st.session_state['scaler'] = scaler_s
         st.session_state['weights'] = weights
 
-    # --- ФИЛЬТРАЦИЯ И ПРИМЕНЕНИЕ КЛАСТЕРОВ ---
-    # (Здесь вы можете добавить фильтры по месяцам, кластеры не изменятся)
-    agg_df = df.groupby('Supplier_ID').agg({
-        'Order Value USD': 'sum', 'Performance_Quality_Score': 'mean', 
-        'Financial_Risk_Score_Quarterly': 'mean', 'Nachhaltigkeitsscore': 'mean',
-        'Standards Risks_Score': 'mean', 'Risikoscore Political': 'mean'
-    }).reset_index()
+    # --- АГРЕГАЦИЯ И ПРЕДСКАЗАНИЕ ---
+    agg_dict = {'Order Value USD': 'sum'}
+    for col in risk_cols:
+        agg_dict[col] = 'mean'
+    
+    agg_df = df.groupby('Supplier_ID').agg(agg_dict).reset_index()
 
     agg_df['Normalized_Spend'] = st.session_state['scaler'].transform(agg_df[['Order Value USD']])
-    agg_df['Weighted_Risk'] = (agg_df.iloc[:, 2:7].values * st.session_state['weights']).sum(axis=1)
+    agg_df['Weighted_Risk'] = (agg_df[risk_cols].values * st.session_state['weights']).sum(axis=1)
     
-    # Применяем ПРЕДСКАЗАНИЕ обученной модели
     agg_df['Cluster_ID'] = st.session_state['kmeans_model'].predict(agg_df[['Normalized_Spend', 'Weighted_Risk']])
 
-    # Называем кластеры по координатам центроидов
+    # Называем кластеры
     centroids = st.session_state['kmeans_model'].cluster_centers_
     cluster_map = {i: "" for i in range(4)}
     for i in range(4):
@@ -91,14 +91,7 @@ def main():
 
     # --- ВИЗУАЛИЗАЦИЯ ---
     fig = px.scatter(agg_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant", hover_data=['Supplier_ID'])
-    event = st.plotly_chart(fig, on_select="rerun")
-
-    # --- ДЕТАЛИ ---
-    if event and event["selection"]["points"]:
-        idx = event["selection"]["points"][0]["point_index"]
-        supplier = agg_df.iloc[idx]
-        st.subheader("Punktedetails")
-        st.write(f"Supplier: {supplier['Supplier_ID']} | Spend: {supplier['Order Value USD']:.0f} | Quadrant: {supplier['Kraljic_Quadrant']}")
+    st.plotly_chart(fig)
 
 if __name__ == "__main__":
     main()
