@@ -5,14 +5,12 @@ import plotly.express as px
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
-# Page Configuration
 st.set_page_config(page_title="Kraljic Matrix Dashboard", layout="wide")
 
 @st.cache_data
 def load_data():
-    # Make sure separator and decimal match your CSV
+    # Загрузка данных
     df = pd.read_csv('Merged dataset with Scores.csv', sep=';', decimal=',')
-    # Cleaning the 'Order Value USD' column
     df['Order Value USD'] = (
         df['Order Value USD'].astype(str).str.replace(' ', '', regex=False)
         .str.replace(',', '.', regex=False).astype(float)
@@ -23,19 +21,7 @@ def main():
     st.title("Sustainable Supply Chain: Kraljic Matrix")
     df = load_data()
 
-    # --- WEIGHT INPUT SIDEBAR ---
-    st.sidebar.header("Risk Weights (sum = 100)")
-    w1 = st.sidebar.number_input("Performance Quality", 0, 100, 20)
-    w2 = st.sidebar.number_input("Financial Risk", 0, 100, 20)
-    w3 = st.sidebar.number_input("Sustainability Score", 0, 100, 20)
-    w4 = st.sidebar.number_input("Standards Risk", 0, 100, 20)
-    w5 = st.sidebar.number_input("Political Risk", 0, 100, 20)
-
-    if (w1 + w2 + w3 + w4 + w5) != 100:
-        st.error("Weights must sum to 100%.")
-        st.stop()
-
-    # Risk columns list
+    # Риски для расчета
     risk_cols = [
         'Performance_Quality_Risk_Score', 
         'Financial_Risk_Score', 
@@ -44,55 +30,68 @@ def main():
         'Political_Risk_Score'
     ]
 
-    # --- MODEL TRAINING ---
-    # Corrected indentation here
-    if 'kmeans_model' not in st.session_state:
-        agg_dict = {'Order Value USD': 'sum'}
-        for col in risk_cols:
-            agg_dict[col] = 'mean'
-            
-        base_df = df.groupby('Supplier_ID').agg(agg_dict)
+    # --- 1. ОБУЧЕНИЕ НА ГОДОВЫХ ДАННЫХ (Фиксируем рамки кластеров) ---
+    if 'kmeans' not in st.session_state:
+        # Агрегация по всему году
+        agg_full = df.groupby('Supplier_ID').agg({**{'Order Value USD': 'sum'}, **{c: 'mean' for c in risk_cols}})
         
-        scaler_s = MinMaxScaler()
-        base_df['Normalized_Spend'] = scaler_s.fit_transform(base_df[['Order Value USD']])
+        # Обучаем scaler на годовых данных
+        scaler = MinMaxScaler()
+        agg_full['Normalized_Spend'] = scaler.fit_transform(agg_full[['Order Value USD']])
         
-        weights = np.array([w1, w2, w3, w4, w5]) / 100
-        base_df['Weighted_Risk'] = (base_df[risk_cols].values * weights).sum(axis=1)
+        # Рассчитываем веса (фиксируем 20% как дефолт, чтобы модель обучилась)
+        weights = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
+        agg_full['Weighted_Risk'] = (agg_full[risk_cols].values * weights).sum(axis=1)
         
+        # Обучаем кластеризацию
         kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
-        kmeans.fit(base_df[['Normalized_Spend', 'Weighted_Risk']])
+        kmeans.fit(agg_full[['Normalized_Spend', 'Weighted_Risk']])
         
-        st.session_state['kmeans_model'] = kmeans
-        st.session_state['scaler'] = scaler_s
-        st.session_state['weights'] = weights
+        # Сохраняем модель и веса
+        st.session_state.update({'kmeans': kmeans, 'scaler': scaler, 'weights': weights})
 
-    # --- AGGREGATION AND PREDICTION ---
-    agg_dict = {'Order Value USD': 'sum'}
-    for col in risk_cols:
-        agg_dict[col] = 'mean'
+    # --- 2. SIDEBAR (Фильтры) ---
+    st.sidebar.header("Risk Weights")
+    w1, w2, w3, w4, w5 = [st.sidebar.number_input(label, 0, 100, 20) for label in ["Perf. Quality", "Financial Risk", "Sustainability", "Standards Risk", "Political Risk"]]
     
-    agg_df = df.groupby('Supplier_ID').agg(agg_dict).reset_index()
+    if (w1 + w2 + w3 + w4 + w5) != 100:
+        st.sidebar.error("Weights must sum to 100%.")
+    else:
+        st.session_state['weights'] = np.array([w1, w2, w3, w4, w5]) / 100
 
+    selected_month = st.sidebar.selectbox("Select Month", sorted(df['Month'].unique()))
+    
+    # --- 3. ПРИМЕНЕНИЕ К МЕСЯЧНЫМ ДАННЫМ ---
+    df_filtered = df[df['Month'] == selected_month].copy()
+    agg_df = df_filtered.groupby('Supplier_ID').agg({**{'Order Value USD': 'sum'}, **{c: 'mean' for c in risk_cols}}).reset_index()
+    
+    # Используем ГОДОВОЙ scaler и ГОДОВЫЕ веса
     agg_df['Normalized_Spend'] = st.session_state['scaler'].transform(agg_df[['Order Value USD']])
     agg_df['Weighted_Risk'] = (agg_df[risk_cols].values * st.session_state['weights']).sum(axis=1)
-    
-    agg_df['Cluster_ID'] = st.session_state['kmeans_model'].predict(agg_df[['Normalized_Spend', 'Weighted_Risk']])
+    agg_df['Cluster_ID'] = st.session_state['kmeans'].predict(agg_df[['Normalized_Spend', 'Weighted_Risk']])
 
-    # Name the clusters
-    centroids = st.session_state['kmeans_model'].cluster_centers_
-    cluster_map = {i: "" for i in range(4)}
-    for i in range(4):
-        s, r = centroids[i]
-        if s > 0.5 and r > 0.5: cluster_map[i] = "Strategic"
-        elif s > 0.5 and r <= 0.5: cluster_map[i] = "Leverage"
-        elif s <= 0.5 and r > 0.5: cluster_map[i] = "Bottleneck"
-        else: cluster_map[i] = "Non-Critical"
-    
+    # Названия квадрантов на основе ГОДОВЫХ центроидов
+    centroids = st.session_state['kmeans'].cluster_centers_
+    cluster_map = {i: ("Strategic" if s>0.5 and r>0.5 else "Leverage" if s>0.5 else "Bottleneck" if r>0.5 else "Non-Critical") for i in range(4) for s,r in [centroids[i]]}
     agg_df['Kraljic_Quadrant'] = agg_df['Cluster_ID'].map(cluster_map)
 
-    # --- VISUALIZATION ---
-    fig = px.scatter(agg_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant", hover_data=['Supplier_ID'])
-    st.plotly_chart(fig)
+    # --- 4. ВИЗУАЛИЗАЦИЯ ---
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        fig = px.scatter(agg_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant", hover_data=['Supplier_ID'])
+        event = st.plotly_chart(fig, on_select="rerun")
+
+    with col2:
+        st.subheader("Supplier Details")
+        if event and event["selection"]["points"]:
+            sel_id = event["selection"]["points"][0]["customdata"][0]
+            data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
+            st.write(f"**Supplier:** {data['Supplier_ID']}")
+            st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
+            for r in risk_cols:
+                st.progress(data[r], text=r.replace('_Score', ''))
+        else:
+            st.info("Click on a point to see details.")
 
 if __name__ == "__main__":
     main()
