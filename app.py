@@ -36,7 +36,7 @@ def main():
         st.stop()
 
     # Список колонок рисков из вашего файла
-    risk_cols = [
+risk_cols = [
         'Performance_Quality_Risk_Score', 
         'Financial_Risk_Score', 
         'Nachhaltigkeit_Risk_score', 
@@ -45,7 +45,7 @@ def main():
     ]
 
     # --- ОБУЧЕНИЕ МОДЕЛИ ---
-    if 'kmeans_model' not in st.session_state:
+        if 'kmeans_model' not in st.session_state:
         agg_dict = {'Order Value USD': 'sum'}
         for col in risk_cols:
             agg_dict[col] = 'mean'
