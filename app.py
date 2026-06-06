@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-from sklearn.cluster import KMeans
 from sklearn.preprocessing import MinMaxScaler
 
 st.set_page_config(page_title="Kraljic Matrix Dashboard", layout="wide")
 
-# Глобальные настройки рисков
 RISK_COLS = [
     'Performance_Quality_Risk_Score', 
     'Financial_Risk_Score', 
@@ -27,22 +25,29 @@ def load_data():
 
 @st.cache_resource
 def train_category_models(df):
-    models_by_category = {}
-    categories = df['Product_Category'].unique()
-    for category in categories:
+    """Рассчитывает средние пороги для квадрантов Кралича по категориям."""
+    models = {}
+    for category in df['Product_Category'].unique():
         cat_df = df[df['Product_Category'] == category].groupby('Supplier_ID').agg(
             {'Order Value USD': 'sum', **{col: 'mean' for col in RISK_COLS}}
         )
         scaler = MinMaxScaler()
         normalized_spend = scaler.fit_transform(cat_df[['Order Value USD']])
-        features = np.column_stack([normalized_spend, cat_df[RISK_COLS].mean(axis=1)])
-        kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
-        kmeans.fit(features)
-        models_by_category[category] = {'scaler': scaler, 'kmeans': kmeans}
-    return models_by_category
+        
+        # Определяем пороги (среднее значение категории)
+        mean_spend = np.mean(normalized_spend)
+        mean_risk = np.mean(cat_df[RISK_COLS].mean(axis=1))
+        
+        models[category] = {'scaler': scaler, 'mean_spend': mean_spend, 'mean_risk': mean_risk}
+    return models
+
+def get_kraljic_quadrant(spend, risk, mean_spend, mean_risk):
+    if spend > mean_spend and risk > mean_risk: return "Strategic"
+    if spend > mean_spend and risk <= mean_risk: return "Leverage"
+    if spend <= mean_spend and risk > mean_risk: return "Bottleneck"
+    return "Non-Critical"
 
 def main():
-    # Инициализация состояния
     if 'selected_point' not in st.session_state: st.session_state['selected_point'] = None
 
     st.title("Sustainable Supply Chain: Category-Specific Kraljic Matrix")
@@ -60,7 +65,7 @@ def main():
         st.rerun()
 
     search_id = st.sidebar.text_input("Search Supplier ID:", key='search_id')
-
+    
     st.sidebar.header("Risk Weights")
     w_vals = [st.sidebar.number_input(col.replace('_', ' '), 0, 100, 20) for col in RISK_COLS]
     weights = np.array(w_vals) / 100
@@ -74,50 +79,9 @@ def main():
         {'Order Value USD': 'sum', **{col: 'mean' for col in RISK_COLS}}
     ).reset_index()
     
-    model_bundle = models[selected_cat]
-    norm_spend = np.clip(model_bundle['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
+    model = models[selected_cat]
+    norm_spend = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
     weighted_risk = (agg_df[RISK_COLS].values * weights).sum(axis=1)
     
     agg_df['Normalized_Spend'] = norm_spend
     agg_df['Weighted_Risk'] = weighted_risk
-    agg_df['Cluster_ID'] = model_bundle['kmeans'].predict(np.column_stack([norm_spend, weighted_risk]))
-    agg_df['Kraljic_Quadrant'] = agg_df['Cluster_ID'].map({0: "Non-Critical", 1: "Strategic", 2: "Leverage", 3: "Bottleneck"})
-
-    # --- VISUALIZATION ---
-    # Фильтрация для отображения одной точки при поиске
-    plot_df = agg_df.copy()
-    if search_id and search_id in plot_df['Supplier_ID'].values:
-        plot_df = plot_df[plot_df['Supplier_ID'] == search_id]
-
-    fig = px.scatter(
-        plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
-        hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1],
-        category_orders={"Kraljic_Quadrant": ["Non-Critical", "Strategic", "Leverage", "Bottleneck"]}
-    )
-    fig.update_traces(marker=dict(size=14, line=dict(width=1, color='White')))
-    fig.update_layout(height=600, width=900)
-    
-    event = st.plotly_chart(fig, on_select="rerun")
-    
-    # Обработка выбора
-    if event and event["selection"]["points"]:
-        st.session_state['selected_point'] = event["selection"]["points"][0]["customdata"][0]
-    
-    sel_id = st.session_state['selected_point']
-    if search_id and search_id in agg_df['Supplier_ID'].values:
-        sel_id = search_id
-
-    # --- DETAILS ---
-    if sel_id:
-        data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
-        st.write(f"### Supplier: {data['Supplier_ID']}")
-        st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
-        for r in RISK_COLS:
-            score = data[r]
-            st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {score:.2f}")
-            st.progress(score)
-    else:
-        st.info("Click a point or enter a Supplier ID to see details.")
-
-if __name__ == "__main__":
-    main()
