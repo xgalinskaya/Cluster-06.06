@@ -4,10 +4,12 @@ import numpy as np
 import plotly.express as px
 from sklearn.preprocessing import MinMaxScaler
 
+
 st.set_page_config(page_title="Kraljic Matrix Dashboard", layout="wide")
 
+
 RISK_COLS = [
-    'Performance_Quality_Risk_Score', 
+    'Performance_Quality_Risk_Score',
     'Financial_Risk_Score', 
     'Nachhaltigkeit_Risk_score', 
     'Standards Risks_Score', 
@@ -63,25 +65,70 @@ def main():
         st.session_state['search_id'] = ""
         st.rerun()
 
-    search_id = st.sidebar.text_input("Search Supplier ID:", key='search_id')
+    supplier_list = ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist())
+
+    selected_supplier = st.sidebar.selectbox(
+        "Select Supplier",
+        supplier_list
+)
     
     # --- RISK WEIGHTS ---
     st.sidebar.header("Risk Weights")
+    preset = st.sidebar.selectbox(
+        "Weight Profile",
+        [
+            "Custom",
+            "Balanced",
+            "Quality Focus",
+            "Financial Focus",
+            "Sustainability Focus",
+            "Political Focus"
+        ]
+    )
+
+    if preset == "Balanced":
+        st.session_state['weights'] = [20, 20, 20, 20, 20]
+
+    elif preset == "Quality Focus":
+        st.session_state['weights'] = [50, 10, 10, 10, 20]
+
+    elif preset == "Financial Focus":
+        st.session_state['weights'] = [10, 50, 10, 10, 20]
+
+    elif preset == "Sustainability Focus":
+        st.session_state['weights'] = [10, 10, 50, 20, 10]
+
+    elif preset == "Political Focus":
+        st.session_state['weights'] = [10, 10, 10, 20, 50]
+
+
     new_weights = []
+
     for i, col in enumerate(RISK_COLS):
+
         label = col.replace('_Score', '').replace('_', ' ')
-        val = st.sidebar.number_input(label, 0, 100, st.session_state['weights'][i], step=5)
+
+        val = st.sidebar.slider(
+            label,
+            min_value=0,
+            max_value=100,
+            value=st.session_state['weights'][i],
+            step=5
+        )
+
         new_weights.append(val)
-    
+
     st.session_state['weights'] = new_weights
     total_weight = sum(new_weights)
 
     if total_weight != 100:
-        st.sidebar.error(f"⚠️ The sum of the weights must be 100! Current sum: {total_weight}")
+        st.sidebar.error(
+            f"⚠️ The sum of the weights must be 100! Current sum: {total_weight}"
+        )
         st.stop()
     else:
         st.sidebar.success("✅ The sum of the weights is correct")
-    
+
     weights = np.array(new_weights) / 100
 
     # --- DATA PIPELINE ---
@@ -106,8 +153,10 @@ def main():
 
     # --- VISUALIZATION ---
     plot_df = agg_df.copy()
-    if search_id and search_id in plot_df['Supplier_ID'].values:
-        plot_df = plot_df[plot_df['Supplier_ID'] == search_id]
+    if selected_supplier != "All Suppliers":
+        plot_df = plot_df[
+             plot_df["Supplier_ID"] == selected_supplier
+    ]
 
     fig = px.scatter(
         plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
@@ -125,8 +174,9 @@ def main():
         st.session_state['selected_point'] = event["selection"]["points"][0]["customdata"][0]
     
     sel_id = st.session_state['selected_point']
-    if search_id and search_id in agg_df['Supplier_ID'].values:
-        sel_id = search_id
+
+    if selected_supplier != "All Suppliers":
+        sel_id = selected_supplier
 
     # --- DETAILS ---
     if sel_id:
