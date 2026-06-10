@@ -11,8 +11,8 @@ st.set_page_config(page_title="Kraljic Matrix Dashboard", layout="wide")
 RISK_COLS = [
     'Performance_Quality_Risk_Score',
     'Financial_Risk_Score', 
-    'Nachhaltigkeit_Risk_score', 
-    'Standards Risks_Score', 
+    'Sustainability_Risk_score', 
+    'Standard Risks_Score', 
     'Political_Risk_Score'
 ]
 
