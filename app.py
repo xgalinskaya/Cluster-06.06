@@ -53,78 +53,59 @@ def main():
     # --- SIDEBAR ---
     selected_cat = st.sidebar.selectbox("Select Product Category", sorted(df['Product_Category'].unique()))
     
-    if st.sidebar.button("Reset Selection"):
-        st.session_state.supp = "All Suppliers"
-        st.session_state.time = "All Months"
-        st.rerun()
-
-    supp_options = ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist())
-    time_options = ["All Months"] + sorted(df['Month'].astype(str).unique().tolist())
-    
-    selected_supplier = st.sidebar.selectbox("Select Supplier", supp_options, key="supp", index=supp_options.index(st.session_state.supp) if st.session_state.supp in supp_options else 0)
-    selected_timeframe = st.sidebar.selectbox("Select Timeframe", time_options, key="time", index=time_options.index(st.session_state.time) if st.session_state.time in time_options else 0)
-
-    # --- WEIGHTS WITH PRESETS ---
+    # --- RISK WEIGHTS ---
     st.sidebar.header("Risk Weights")
-    preset = st.sidebar.selectbox("Weight Profile", ["Custom", "Balanced", "Quality Focus", "Financial Focus", "Sustainability Focus", "Political Focus"])
-    
-    presets = {
-        "Balanced": [20, 20, 20, 20, 20],
-        "Quality Focus": [50, 10, 10, 10, 20],
-        "Financial Focus": [10, 50, 10, 10, 20],
-        "Sustainability Focus": [10, 10, 50, 20, 10],
-        "Political Focus": [10, 10, 10, 20, 50]
-    }
-    
+    preset = st.sidebar.selectbox(
+        "Weight Profile",
+        ["Custom", "Balanced", "Quality Focus", "Financial Focus", "Sustainability Focus", "Political Focus"]
+    )
+
     if preset != "Custom":
-        st.session_state['weights'] = presets[preset]
+        profiles = {
+            "Balanced": [20, 20, 20, 20, 20],
+            "Quality Focus": [50, 10, 10, 10, 20],
+            "Financial Focus": [10, 50, 10, 10, 20],
+            "Sustainability Focus": [10, 10, 50, 20, 10],
+            "Political Focus": [10, 10, 10, 20, 50]
+        }
+        st.session_state['weights'] = profiles[preset]
 
     new_weights = []
     for i, col in enumerate(RISK_COLS):
-        val = st.sidebar.slider(col.replace('_Score', '').replace('_', ' '), 0, 100, st.session_state['weights'][i], 5, key=f"w_{i}")
+        label = col.replace('_Score', '').replace('_', ' ')
+        val = st.sidebar.slider(label, 0, 100, st.session_state['weights'][i], 5)
         new_weights.append(val)
     
-    total_w = sum(new_weights)
-    if total_w != 100:
-        st.sidebar.error(f"⚠️ Sum of weights must be 100! Current: {total_w}")
+    st.session_state['weights'] = new_weights
+    total_weight = sum(new_weights)
+
+    if total_weight != 100:
+        st.sidebar.error(f"⚠️ Sum must be 100! Current: {total_weight}")
         st.stop()
     else:
-        st.sidebar.success("✅ Total weight 100%")
-    
-    st.session_state['weights'] = new_weights
-    
-    # --- PIPELINE ---
-    subset = df[(df['Product_Category'] == selected_cat)]
-    if selected_timeframe != "All Months": subset = subset[subset['Month'].astype(str) == selected_timeframe]
-    
-    if subset.empty:
-        st.warning("No orders found for the selected category or period.")
-        return
+        st.sidebar.success("✅ Weights normalized")
 
+    weights_normalized = np.array(new_weights) / 100
+
+    # --- PIPELINE ---
+    subset = df[df['Product_Category'] == selected_cat]
     agg_df = subset.groupby('Supplier_ID').agg({'Order Value USD': 'sum', 'Country': 'first', **{col: 'mean' for col in RISK_COLS}}).reset_index()
     
     model = models[selected_cat]
     agg_df['Normalized_Spend'] = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
-    agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * (np.array(new_weights)/100)).sum(axis=1)
+    # Используем нормализованные веса
+    agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * weights_normalized).sum(axis=1)
     agg_df['Kraljic_Quadrant'] = agg_df.apply(lambda x: get_kraljic_quadrant(x['Normalized_Spend'], x['Weighted_Risk'], model['mean_spend'], model['mean_risk']), axis=1)
 
-    # --- PLOT & DETAILS ---
-    plot_df = agg_df[agg_df["Supplier_ID"] == selected_supplier] if selected_supplier != "All Suppliers" else agg_df
-    
-    fig = px.scatter(plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant", hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1])
+    # --- PLOT ---
+    fig = px.scatter(
+        agg_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
+        hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1]
+    )
     fig.add_vline(x=model['mean_spend'], line_dash="dash", line_color="gray")
     fig.add_hline(y=model['mean_risk'], line_dash="dash", line_color="gray")
     
-    event = st.plotly_chart(fig, on_select="rerun")
-    sel_id = event["selection"]["points"][0]["customdata"][0] if (event and event["selection"]["points"]) else (selected_supplier if selected_supplier != "All Suppliers" else None)
-    
-    if sel_id and sel_id in agg_df['Supplier_ID'].values:
-        data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
-        st.write(f"### Supplier: {data['Supplier_ID']}")
-        st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
-        for r in RISK_COLS:
-            st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {data[r]:.2f}")
-            st.progress(data[r]/100)
+    st.plotly_chart(fig)
 
 if __name__ == "__main__":
     main()
