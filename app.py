@@ -42,9 +42,14 @@ def get_kraljic_quadrant(spend, risk, mean_spend, mean_risk):
     return "Non-Critical"
 
 def main():
-    if 'supp' not in st.session_state: st.session_state.supp = "All Suppliers"
-    if 'time' not in st.session_state: st.session_state.time = "All Months"
-
+# 1. Сначала инициализируем ВСЕ ключи session_state
+    if 'supp' not in st.session_state: 
+        st.session_state.supp = "All Suppliers"
+    if 'time' not in st.session_state: 
+        st.session_state.time = "All Months"
+    if 'weights' not in st.session_state: 
+        st.session_state['weights'] = [20, 20, 20, 20, 20]
+        
     st.title("Sustainable Supply Chain: Category-Specific Kraljic Matrix")
     df = load_data()
     models = train_category_models(df)
@@ -73,7 +78,7 @@ st.sidebar.header("Risk Weights")
 
 # 1. FIXED: Initialization must happen at the very start
     if 'weights' not in st.session_state:
-    st.session_state['weights'] = [20, 20, 20, 20, 20]
+        st.session_state['weights'] = [20, 20, 20, 20, 20]
 
 preset = st.sidebar.selectbox(
     "Weight Profile",
