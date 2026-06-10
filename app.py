@@ -51,6 +51,7 @@ def main():
     selected_supplier = st.sidebar.selectbox("Select Supplier", ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()))
     selected_timeframe = st.sidebar.selectbox("Select Timeframe", ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()))
     
+    # Кнопка Reset
     if st.sidebar.button("Reset Selection"):
         st.rerun()
 
@@ -63,12 +64,13 @@ def main():
     subset = df[(df['Product_Category'] == selected_cat)]
     if selected_timeframe != "All Months": subset = subset[subset['Month'].astype(str) == selected_timeframe]
     
-    agg_df = subset.groupby('Supplier_ID').agg({'Order Value USD': 'sum', 'Country': 'first', **{col: 'mean' for col in RISK_COLS}}).reset_index()
-    
-    if agg_df.empty:
+    # Проверка на пустые данные (No orders in selected period)
+    if subset.empty:
         st.warning(f"No orders found for the selected category or period.")
         return
 
+    agg_df = subset.groupby('Supplier_ID').agg({'Order Value USD': 'sum', 'Country': 'first', **{col: 'mean' for col in RISK_COLS}}).reset_index()
+    
     model = models[selected_cat]
     agg_df['Normalized_Spend'] = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
     agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * (np.array(new_weights)/100)).sum(axis=1)
@@ -101,6 +103,8 @@ def main():
                 st.progress(data[r])
         else:
             st.warning(f"Supplier {sel_id} has no orders in the selected period.")
+    else:
+        st.info("Select a point on the graph or a Supplier from the menu to see details.")
 
 if __name__ == "__main__":
     main()
