@@ -88,7 +88,8 @@ def main():
             "Political Focus": [10, 10, 10, 20, 50]
         }
         # Если выбрали пресет, обновляем session_state и перезапускаем, чтобы слайдеры обновились
-        if st.session_state['weights'] != profiles[preset]:
+    if 'weights' not in st.session_state:
+        st.session_state['weights'] = [20, 20, 20, 20, 20]
             st.session_state['weights'] = profiles[preset]
             st.rerun()
 
@@ -108,7 +109,7 @@ def main():
         st.rerun()
 
     # Валидация
-if total_weight != 100:
+    if total_weight != 100:
         st.sidebar.warning(f"⚠️ The sum of weights must be 100. Current: {total_weight}")
         # Calculate normalized weights to keep the app running even if the sum is not 100
         weights_normalized = np.array(new_weights) / (total_weight if total_weight != 0 else 1)
