@@ -27,7 +27,6 @@ def train_category_models(df):
     for category in df['Product_Category'].unique():
         cat_df = df[df['Product_Category'] == category].groupby('Supplier_ID').agg({'Order Value USD': 'sum', **{col: 'mean' for col in RISK_COLS}})
         scaler = MinMaxScaler()
-        # Обучаем скейлер на всей категории для фиксации масштаба
         scaler.fit(cat_df[['Order Value USD']])
         models[category] = {
             'scaler': scaler, 
@@ -52,6 +51,9 @@ def main():
     selected_supplier = st.sidebar.selectbox("Select Supplier", ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()))
     selected_timeframe = st.sidebar.selectbox("Select Timeframe", ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()))
     
+    if st.sidebar.button("Reset Selection"):
+        st.rerun()
+
     if 'weights' not in st.session_state: st.session_state['weights'] = [20, 20, 20, 20, 20]
     st.sidebar.header("Risk Weights")
     new_weights = [st.sidebar.slider(col.replace('_Score', '').replace('_', ' '), 0, 100, st.session_state['weights'][i], 5) for i, col in enumerate(RISK_COLS)]
@@ -63,7 +65,10 @@ def main():
     
     agg_df = subset.groupby('Supplier_ID').agg({'Order Value USD': 'sum', 'Country': 'first', **{col: 'mean' for col in RISK_COLS}}).reset_index()
     
-    # Фиксированная нормализация согласно обученной модели
+    if agg_df.empty:
+        st.warning(f"No orders found for the selected category or period.")
+        return
+
     model = models[selected_cat]
     agg_df['Normalized_Spend'] = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
     agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * (np.array(new_weights)/100)).sum(axis=1)
@@ -72,32 +77,30 @@ def main():
     # --- PLOT ---
     plot_df = agg_df[agg_df["Supplier_ID"] == selected_supplier] if selected_supplier != "All Suppliers" else agg_df
     
-    if not agg_df.empty:
-        fig = px.scatter(
-            plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
-            hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1],
-            category_orders={"Kraljic_Quadrant": ["Strategic", "Leverage", "Bottleneck", "Non-Critical"]}
-        )
-        fig.update_traces(marker=dict(size=16, line=dict(width=2, color='White')))
-        fig.add_vline(x=model['mean_spend'], line_dash="dash", line_color="gray")
-        fig.add_hline(y=model['mean_risk'], line_dash="dash", line_color="gray")
-        event = st.plotly_chart(fig, on_select="rerun")
-    else:
-        st.warning("No data for current filters.")
-        event = None
+    fig = px.scatter(
+        plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
+        hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1],
+        category_orders={"Kraljic_Quadrant": ["Strategic", "Leverage", "Bottleneck", "Non-Critical"]}
+    )
+    fig.update_traces(marker=dict(size=16, line=dict(width=2, color='White')))
+    fig.add_vline(x=model['mean_spend'], line_dash="dash", line_color="gray")
+    fig.add_hline(y=model['mean_risk'], line_dash="dash", line_color="gray")
+    
+    event = st.plotly_chart(fig, on_select="rerun")
 
     # --- DETAILS ---
     sel_id = event["selection"]["points"][0]["customdata"][0] if (event and event["selection"]["points"]) else (selected_supplier if selected_supplier != "All Suppliers" else None)
     
-    if sel_id and sel_id in agg_df['Supplier_ID'].values:
-        data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
-        st.write(f"### Supplier: {data['Supplier_ID']}")
-        st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
-        for r in RISK_COLS:
-            st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {data[r]:.2f}")
-            st.progress(data[r])
-    elif sel_id:
-        st.info("Select a point to see details.")
+    if sel_id:
+        if sel_id in agg_df['Supplier_ID'].values:
+            data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
+            st.write(f"### Supplier: {data['Supplier_ID']}")
+            st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
+            for r in RISK_COLS:
+                st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {data[r]:.2f}")
+                st.progress(data[r])
+        else:
+            st.warning(f"Supplier {sel_id} has no orders in the selected period.")
 
 if __name__ == "__main__":
     main()
