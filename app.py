@@ -42,13 +42,10 @@ def get_kraljic_quadrant(spend, risk, mean_spend, mean_risk):
     return "Non-Critical"
 
 def main():
-# 1. Сначала инициализируем ВСЕ ключи session_state
-    if 'supp' not in st.session_state: 
-        st.session_state.supp = "All Suppliers"
-    if 'time' not in st.session_state: 
-        st.session_state.time = "All Months"
-    if 'weights' not in st.session_state: 
-        st.session_state['weights'] = [20, 20, 20, 20, 20]
+    # 1. Инициализация (всегда в начале)
+    if 'supp' not in st.session_state: st.session_state.supp = "All Suppliers"
+    if 'time' not in st.session_state: st.session_state.time = "All Months"
+    if 'weights' not in st.session_state: st.session_state['weights'] = [20, 20, 20, 20, 20]
         
     st.title("Sustainable Supply Chain: Category-Specific Kraljic Matrix")
     df = load_data()
@@ -64,16 +61,10 @@ def main():
     supp_options = ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist())
     time_options = ["All Months"] + sorted(df['Month'].astype(str).unique().tolist())
 
-    selected_supplier = st.sidebar.selectbox(
-        "Select Supplier", supp_options, key="supp",
-        index=supp_options.index(st.session_state.supp) if st.session_state.supp in supp_options else 0
-    )
-    selected_timeframe = st.sidebar.selectbox(
-        "Select Timeframe", time_options, key="time",
-        index=time_options.index(st.session_state.time) if st.session_state.time in time_options else 0
-    )
+    selected_supplier = st.sidebar.selectbox("Select Supplier", supp_options, key="supp")
+    selected_timeframe = st.sidebar.selectbox("Select Timeframe", time_options, key="time")
 
-# --- RISK WEIGHTS ---
+    # --- RISK WEIGHTS ---
 st.sidebar.header("Risk Weights")
 
 # 1. FIXED: Initialization must happen at the very start
