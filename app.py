@@ -48,8 +48,20 @@ def main():
 
     # --- SIDEBAR ---
     selected_cat = st.sidebar.selectbox("Select Product Category", sorted(df['Product_Category'].unique()))
-    selected_supplier = st.sidebar.selectbox("Select Supplier", ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()))
-    selected_timeframe = st.sidebar.selectbox("Select Timeframe", ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()))
+    selected_supplier = st.sidebar.selectbox(
+        "Select Supplier", 
+        ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()), 
+        key="supp",
+        index=["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()).index(st.session_state.supp) 
+        if st.session_state.supp in ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()) else 0
+    )
+    selected_timeframe = st.sidebar.selectbox(
+        "Select Timeframe", 
+        ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()), 
+        key="time",
+        index=["All Months"] + sorted(df['Month'].astype(str).unique().tolist()).index(st.session_state.time)
+        if st.session_state.time in ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()) else 0
+    )
     
     # Кнопка Reset
     if st.sidebar.button("Reset Selection"):
