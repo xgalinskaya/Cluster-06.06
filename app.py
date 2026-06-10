@@ -18,7 +18,6 @@ RISK_COLS = [
 @st.cache_data
 def load_data():
     df = pd.read_csv('Merged dataset with Scores.csv', sep=';', decimal=',')
-    # Strip whitespace from column names to prevent KeyErrors
     df.columns = df.columns.str.strip()
     df['Order Value USD'] = (
         df['Order Value USD'].astype(str).str.replace(' ', '', regex=False)
@@ -30,7 +29,6 @@ def load_data():
 def train_category_models(df):
     models = {}
     for category in df['Product_Category'].unique():
-        # Aggregate data by Supplier_ID for each category
         cat_df = df[df['Product_Category'] == category].groupby('Supplier_ID').agg(
             {'Order Value USD': 'sum', **{col: 'mean' for col in RISK_COLS}}
         )
@@ -55,23 +53,15 @@ def main():
 
     st.title("Sustainable Supply Chain: Category-Specific Kraljic Matrix")
     df = load_data()
-    
-    # Check if all required risk columns exist in the dataframe
-    for col in RISK_COLS:
-        if col not in df.columns:
-            st.error(f"Column '{col}' not found. Available columns: {df.columns.tolist()}")
-            st.stop()
-
     models = train_category_models(df)
 
-    # --- SIDEBAR CONFIGURATION ---
+    # --- SIDEBAR ---
     st.sidebar.header("Configuration")
     selected_cat = st.sidebar.selectbox("Select Product Category", sorted(df['Product_Category'].unique()))
+    selected_timeframe = st.sidebar.selectbox("Select Timeframe", ["All Months"] + sorted(df['Month'].unique().astype(str).tolist()))
     
     supplier_list = ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist())
     selected_supplier = st.sidebar.selectbox("Select Supplier", supplier_list)
-    
-    selected_timeframe = st.sidebar.selectbox("Select Timeframe", ["All Months"] + sorted(df['Month'].unique().astype(str).tolist()))
     
     if st.sidebar.button("Reset Selection"):
         st.session_state['selected_point'] = None
@@ -79,7 +69,18 @@ def main():
 
     # --- RISK WEIGHTS ---
     st.sidebar.header("Risk Weights")
-    # ... (weight profiles logic remains the same) ...
+    new_weights = []
+    for i, col in enumerate(RISK_COLS):
+        label = col.replace('_Score', '').replace('_', ' ')
+        val = st.sidebar.slider(label, 0, 100, st.session_state['weights'][i], 5)
+        new_weights.append(val)
+    
+    st.session_state['weights'] = new_weights
+    weights = np.array(new_weights) / 100
+    
+    if sum(new_weights) != 100:
+        st.sidebar.error(f"Weights must sum to 100! Current: {sum(new_weights)}")
+        st.stop()
 
     # --- DATA PIPELINE ---
     subset = df[df['Product_Category'] == selected_cat].copy()
@@ -91,27 +92,30 @@ def main():
     ).reset_index()
     
     model = models[selected_cat]
-    norm_spend = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
-    weights = np.array(st.session_state['weights']) / 100
+    agg_df['Normalized_Spend'] = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
     agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * weights).sum(axis=1)
+    agg_df['Kraljic_Quadrant'] = agg_df.apply(lambda x: get_kraljic_quadrant(x['Normalized_Spend'], x['Weighted_Risk'], model['mean_spend'], model['mean_risk']), axis=1)
+
+    # --- PLOTTING ---
+    plot_df = agg_df[agg_df["Supplier_ID"] == selected_supplier] if selected_supplier != "All Suppliers" else agg_df
     
-    # --- DETAILS SECTION ---
-    sel_id = selected_supplier if selected_supplier != "All Suppliers" else st.session_state.get('selected_point')
-    
-    if sel_id:
-        supplier_data = agg_df[agg_df['Supplier_ID'] == sel_id]
-        if not supplier_data.empty:
-            data = supplier_data.iloc[0]
-            st.write(f"### Supplier: {data['Supplier_ID']}")
-            st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
-            for r in RISK_COLS:
-                st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {data[r]:.2f}")
-                st.progress(data[r])
-        else:
-            # Display warning if no orders found for the specific selection
-            st.warning(f"No orders found for supplier {sel_id} in the selected period and category.")
+    if not plot_df.empty:
+        fig = px.scatter(plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant", hover_data=['Supplier_ID'])
+        fig.add_vline(x=model['mean_spend'], line_dash="dash"); fig.add_hline(y=model['mean_risk'], line_dash="dash")
+        st.plotly_chart(fig, on_select="rerun")
     else:
-        st.info("Click a point on the chart or select a Supplier ID to see details.")
+        st.warning("No data available for the selected filters.")
+
+    # --- DETAILS ---
+    sel_id = selected_supplier if selected_supplier != "All Suppliers" else st.session_state.get('selected_point')
+    if sel_id and sel_id in agg_df['Supplier_ID'].values:
+        data = agg_df[agg_df['Supplier_ID'] == sel_id].iloc[0]
+        st.write(f"### Supplier: {data['Supplier_ID']}")
+        for r in RISK_COLS:
+            st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {data[r]:.2f}")
+            st.progress(data[r])
+    elif sel_id:
+        st.warning(f"No orders found for supplier {sel_id} in the selected period.")
 
 if __name__ == "__main__":
     main()
