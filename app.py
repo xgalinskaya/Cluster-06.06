@@ -66,11 +66,6 @@ def main():
 
     # --- RISK WEIGHTS ---
 st.sidebar.header("Risk Weights")
-
-# 1. FIXED: Initialization must happen at the very start
-    if 'weights' not in st.session_state:
-        st.session_state['weights'] = [20, 20, 20, 20, 20]
-
 preset = st.sidebar.selectbox(
     "Weight Profile",
     ["Custom", "Balanced", "Quality Focus", "Financial Focus", "Sustainability Focus", "Political Focus"]
