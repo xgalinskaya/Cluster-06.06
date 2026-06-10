@@ -31,6 +31,12 @@ def train_category_models(df):
         models[category] = {'scaler': scaler, 'mean_spend': np.mean(normalized_spend), 'mean_risk': np.mean(cat_df[RISK_COLS].mean(axis=1))}
     return models
 
+def get_kraljic_quadrant(spend, risk, mean_spend, mean_risk):
+    if spend > mean_spend and risk > mean_risk: return "Strategic"
+    if spend > mean_spend and risk <= mean_risk: return "Leverage"
+    if spend <= mean_spend and risk > mean_risk: return "Bottleneck"
+    return "Non-Critical"
+
 def main():
     st.title("Sustainable Supply Chain: Category-Specific Kraljic Matrix")
     df = load_data()
@@ -41,7 +47,6 @@ def main():
     selected_supplier = st.sidebar.selectbox("Select Supplier", ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()))
     selected_timeframe = st.sidebar.selectbox("Select Timeframe", ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()))
     
-    # Weights logic
     if 'weights' not in st.session_state: st.session_state['weights'] = [20, 20, 20, 20, 20]
     st.sidebar.header("Risk Weights")
     new_weights = [st.sidebar.slider(col.replace('_Score', '').replace('_', ' '), 0, 100, st.session_state['weights'][i], 5) for i, col in enumerate(RISK_COLS)]
@@ -51,23 +56,21 @@ def main():
     subset = df[(df['Product_Category'] == selected_cat)]
     if selected_timeframe != "All Months": subset = subset[subset['Month'].astype(str) == selected_timeframe]
     
-    if subset.empty:
-        st.warning("No orders found for the selected category/period.")
-        return
-
     agg_df = subset.groupby('Supplier_ID').agg({'Order Value USD': 'sum', 'Country': 'first', **{col: 'mean' for col in RISK_COLS}}).reset_index()
     model = models[selected_cat]
     agg_df['Normalized_Spend'] = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
     agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * (np.array(new_weights)/100)).sum(axis=1)
+    agg_df['Kraljic_Quadrant'] = agg_df.apply(lambda x: get_kraljic_quadrant(x['Normalized_Spend'], x['Weighted_Risk'], model['mean_spend'], model['mean_risk']), axis=1)
 
     # --- PLOT ---
     plot_df = agg_df[agg_df["Supplier_ID"] == selected_supplier] if selected_supplier != "All Suppliers" else agg_df
     
-    fig = px.scatter(plot_df, x="Normalized_Spend", y="Weighted_Risk", hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1])
-    
-    # ЧЕТКОСТЬ И РАЗМЕР ТОЧЕК
+    fig = px.scatter(
+        plot_df, x="Normalized_Spend", y="Weighted_Risk", color="Kraljic_Quadrant",
+        hover_data=['Supplier_ID'], range_x=[0, 1], range_y=[0, 1],
+        category_orders={"Kraljic_Quadrant": ["Strategic", "Leverage", "Bottleneck", "Non-Critical"]}
+    )
     fig.update_traces(marker=dict(size=16, line=dict(width=2, color='White')))
-    
     fig.add_vline(x=model['mean_spend'], line_dash="dash", line_color="gray")
     fig.add_hline(y=model['mean_risk'], line_dash="dash", line_color="gray")
     
@@ -82,7 +85,7 @@ def main():
         st.metric("Spend", f"{data['Order Value USD']:,.0f} $")
         for r in RISK_COLS:
             st.write(f"**{r.replace('_Score', '').replace('_', ' ')}**: {data[r]:.2f}")
-            st.progress(data[r] / 100)
+            st.progress(data[r]) # Заливка шкалы риска
     elif sel_id:
         st.info("No data available for this selection.")
 
