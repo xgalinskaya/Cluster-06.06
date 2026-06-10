@@ -12,7 +12,7 @@ RISK_COLS = [
     'Performance_Quality_Risk_Score',
     'Financial_Risk_Score', 
     'Sustainability_Risk_score', 
-    'Standard Risks_Score', 
+    'Standard Risk_Score', 
     'Political_Risk_Score'
 ]
 
