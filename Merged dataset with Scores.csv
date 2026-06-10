@@ -1,4 +1,4 @@
-﻿Supplier_ID;Product_Category;Month;Order Value USD;Performance_Quality_Risk_Score;Financial_Risk_Score;Nachhaltigkeit_Risk_score;Standards Risks_Score;Political_Risk_Score;Country;;
+﻿Supplier_ID;Product_Category;Month;Order Value USD;Performance_Quality_Risk_Score;Financial_Risk_Score;Sustainability_Risk_score;Standards Risk_Score;Political_Risk_Score;Country;;
 S1;Electronics;2023-03;38 901,02;0,56744868;0,590472015;0,2862;0;0,41191883;France;;
 S1;Electronics;2023-08;32 879,57;0,040175953;0,557594308;0,2862;0;0,29280462;France;;
 S1;Electronics;2023-12;48 527,73;0,732502444;0,565566274;0,2862;0;0,43648298;France;;
