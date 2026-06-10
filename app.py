@@ -70,6 +70,10 @@ def main():
 
 # --- RISK WEIGHTS ---
     st.sidebar.header("Risk Weights")
+    
+    if 'weights' not in st.session_state:
+        st.session_state['weights'] = [20, 20, 20, 20, 20]
+
     preset = st.sidebar.selectbox(
         "Weight Profile",
         ["Custom", "Balanced", "Quality Focus", "Financial Focus", "Sustainability Focus", "Political Focus"]
@@ -83,25 +87,34 @@ def main():
             "Sustainability Focus": [10, 10, 50, 20, 10],
             "Political Focus": [10, 10, 10, 20, 50]
         }
-        st.session_state['weights'] = profiles[preset]
+        # Если выбрали пресет, обновляем session_state и перезапускаем, чтобы слайдеры обновились
+        if st.session_state['weights'] != profiles[preset]:
+            st.session_state['weights'] = profiles[preset]
+            st.rerun()
 
+    # Отрисовка слайдеров
     new_weights = []
     for i, col in enumerate(RISK_COLS):
         label = col.replace('_Score', '').replace('_', ' ')
-        val = st.sidebar.slider(label, 0, 100, st.session_state['weights'][i], 5)
+        val = st.sidebar.slider(label, 0, 100, int(st.session_state['weights'][i]), 5, key=f"slider_{i}")
         new_weights.append(val)
     
-    st.session_state['weights'] = new_weights
+    # Вычисляем сумму здесь, ДО проверок
     total_weight = sum(new_weights)
-
-    if total_weight != 100:
-        st.sidebar.error(f"⚠️ Sum must be 100! Current: {total_weight}")
-        st.stop()
-    else:
-        st.sidebar.success("✅ Weights normalized")
-
-    weights_normalized = np.array(new_weights) / 100
     
+    # Сохраняем новые значения в session_state, если они изменились вручную
+    if new_weights != st.session_state['weights']:
+        st.session_state['weights'] = new_weights
+        st.rerun()
+
+    # Валидация
+    if total_weight != 100:
+        st.sidebar.warning(f"⚠️ Сумма весов должна быть 100. Сейчас: {total_weight}")
+        weights_normalized = np.array(new_weights) / (total_weight if total_weight != 0 else 1)
+    else:
+        st.sidebar.success("✅ Веса сбалансированы")
+        weights_normalized = np.array(new_weights) / 100
+
     # Pipeline
     subset = df[(df['Product_Category'] == selected_cat)]
     if selected_timeframe != "All Months": subset = subset[subset['Month'].astype(str) == selected_timeframe]
@@ -110,11 +123,33 @@ def main():
         st.warning("No orders found for the selected category or period.")
         return
 
-    agg_df = subset.groupby('Supplier_ID').agg({'Order Value USD': 'sum', 'Country': 'first', **{col: 'mean' for col in RISK_COLS}}).reset_index()
+# 1. Агрегация данных
+    agg_df = subset.groupby('Supplier_ID').agg({
+        'Order Value USD': 'sum', 
+        'Country': 'first', 
+        **{col: 'mean' for col in RISK_COLS}
+    }).reset_index()
+
+    # 2. Используем ЗАФИКСИРОВАННУЮ модель для конкретной категории
     model = models[selected_cat]
+
+    # 3. НОРМАЛИЗАЦИЯ: используем именно тот scaler, который был обучен на годовых данных
+    # Это гарантирует, что "0" и "1" по оси X всегда будут соответствовать годовым максимумам
     agg_df['Normalized_Spend'] = np.clip(model['scaler'].transform(agg_df[['Order Value USD']]), 0, 1)
-    agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * (np.array(new_weights)/100)).sum(axis=1)
-    agg_df['Kraljic_Quadrant'] = agg_df.apply(lambda x: get_kraljic_quadrant(x['Normalized_Spend'], x['Weighted_Risk'], model['mean_spend'], model['mean_risk']), axis=1)
+
+    # 4. РИСК: используем нормализованные веса (weights_normalized)
+    agg_df['Weighted_Risk'] = (agg_df[RISK_COLS].values * weights_normalized).sum(axis=1)
+
+    # 5. КВАДРАНТЫ: используем ФИКСИРОВАННЫЕ пороги mean_spend и mean_risk
+    # Это фиксирует сетку, она не будет "плавать" при фильтрации
+    agg_df['Kraljic_Quadrant'] = agg_df.apply(
+        lambda x: get_kraljic_quadrant(
+            x['Normalized_Spend'], 
+            x['Weighted_Risk'], 
+            model['mean_spend'], 
+            model['mean_risk']
+        ), axis=1
+    )
 
     # Plot
     plot_df = agg_df[agg_df["Supplier_ID"] == selected_supplier] if selected_supplier != "All Suppliers" else agg_df
