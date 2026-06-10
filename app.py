@@ -84,17 +84,19 @@ def main():
         val = st.sidebar.slider(label, 0, 100, int(st.session_state['weights'][i]), 5)
         new_weights.append(val)
     
-    # Авто-обновление при изменении весов
+# Auto-update if weights change
     if new_weights != st.session_state['weights']:
         st.session_state['weights'] = new_weights
         st.rerun()
 
+    # Validation Logic
     total_weight = sum(new_weights)
     if total_weight != 100:
-        st.sidebar.warning(f"⚠️ Sum must be 100. Current: {total_weight}")
+        st.sidebar.error(f"⚠️ Current sum: {total_weight}. Must be 100!")
+        st.sidebar.info("👉 Please adjust sliders to reach a sum of 100.")
         weights_normalized = np.array(new_weights) / (total_weight if total_weight != 0 else 1)
     else:
-        st.sidebar.success("✅ Weights are balanced")
+        st.sidebar.success("✅ Weights are balanced (100).")
         weights_normalized = np.array(new_weights) / 100
 
     # Обработка данных
