@@ -108,11 +108,12 @@ def main():
         st.rerun()
 
     # Валидация
-    if total_weight != 100:
-        st.sidebar.warning(f"⚠️ Сумма весов должна быть 100. Сейчас: {total_weight}")
+if total_weight != 100:
+        st.sidebar.warning(f"⚠️ The sum of weights must be 100. Current: {total_weight}")
+        # Calculate normalized weights to keep the app running even if the sum is not 100
         weights_normalized = np.array(new_weights) / (total_weight if total_weight != 0 else 1)
     else:
-        st.sidebar.success("✅ Веса сбалансированы")
+        st.sidebar.success("✅ Weights are balanced")
         weights_normalized = np.array(new_weights) / 100
 
     # Pipeline
