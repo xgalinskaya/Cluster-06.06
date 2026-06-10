@@ -53,6 +53,8 @@ def main():
     
     # Кнопка Reset
     if st.sidebar.button("Reset Selection"):
+        st.session_state.supp = "All Suppliers"
+        st.session_state.time = "All Months"
         st.rerun()
 
     if 'weights' not in st.session_state: st.session_state['weights'] = [20, 20, 20, 20, 20]
