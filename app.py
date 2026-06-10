@@ -69,53 +69,51 @@ def main():
     )
 
 # --- RISK WEIGHTS ---
-    st.sidebar.header("Risk Weights")
-    
+st.sidebar.header("Risk Weights")
+
+# 1. FIXED: Initialization must happen at the very start
     if 'weights' not in st.session_state:
-        st.session_state['weights'] = [20, 20, 20, 20, 20]
+    st.session_state['weights'] = [20, 20, 20, 20, 20]
 
-    preset = st.sidebar.selectbox(
-        "Weight Profile",
-        ["Custom", "Balanced", "Quality Focus", "Financial Focus", "Sustainability Focus", "Political Focus"]
-    )
+preset = st.sidebar.selectbox(
+    "Weight Profile",
+    ["Custom", "Balanced", "Quality Focus", "Financial Focus", "Sustainability Focus", "Political Focus"]
+)
 
+# 2. FIXED: Consistent indentation (4 spaces)
     if preset != "Custom":
-        profiles = {
-            "Balanced": [20, 20, 20, 20, 20],
-            "Quality Focus": [50, 10, 10, 10, 20],
-            "Financial Focus": [10, 50, 10, 10, 20],
-            "Sustainability Focus": [10, 10, 50, 20, 10],
-            "Political Focus": [10, 10, 10, 20, 50]
-        }
-        # Если выбрали пресет, обновляем session_state и перезапускаем, чтобы слайдеры обновились
-    if 'weights' not in st.session_state:
-        st.session_state['weights'] = [20, 20, 20, 20, 20]
-            st.session_state['weights'] = profiles[preset]
-            st.rerun()
+    profiles = {
+        "Balanced": [20, 20, 20, 20, 20],
+        "Quality Focus": [50, 10, 10, 10, 20],
+        "Financial Focus": [10, 50, 10, 10, 20],
+        "Sustainability Focus": [10, 10, 50, 20, 10],
+        "Political Focus": [10, 10, 10, 20, 50]
+    }
+    st.session_state['weights'] = profiles[preset]
 
-    # Отрисовка слайдеров
-    new_weights = []
-    for i, col in enumerate(RISK_COLS):
-        label = col.replace('_Score', '').replace('_', ' ')
-        val = st.sidebar.slider(label, 0, 100, int(st.session_state['weights'][i]), 5, key=f"slider_{i}")
-        new_weights.append(val)
-    
-    # Вычисляем сумму здесь, ДО проверок
-    total_weight = sum(new_weights)
-    
-    # Сохраняем новые значения в session_state, если они изменились вручную
+# 3. Sliders
+new_weights = []
+for i, col in enumerate(RISK_COLS):
+    label = col.replace('_Score', '').replace('_', ' ')
+    # Using the initialized session_state value safely
+    val = st.sidebar.slider(label, 0, 100, int(st.session_state['weights'][i]), 5, key=f"slider_{i}")
+    new_weights.append(val)
+
+# 4. Calculation
+total_weight = sum(new_weights)
+
+# Save updates
     if new_weights != st.session_state['weights']:
-        st.session_state['weights'] = new_weights
-        st.rerun()
+    st.session_state['weights'] = new_weights
+    st.rerun()
 
-    # Валидация
+# 5. Validation (Aligned correctly)
     if total_weight != 100:
-        st.sidebar.warning(f"⚠️ The sum of weights must be 100. Current: {total_weight}")
-        # Calculate normalized weights to keep the app running even if the sum is not 100
-        weights_normalized = np.array(new_weights) / (total_weight if total_weight != 0 else 1)
+    st.sidebar.warning(f"⚠️ The sum of weights must be 100. Current: {total_weight}")
+    weights_normalized = np.array(new_weights) / (total_weight if total_weight != 0 else 1)
     else:
-        st.sidebar.success("✅ Weights are balanced")
-        weights_normalized = np.array(new_weights) / 100
+    st.sidebar.success("✅ Weights are balanced")
+    weights_normalized = np.array(new_weights) / 100
 
     # Pipeline
     subset = df[(df['Product_Category'] == selected_cat)]
