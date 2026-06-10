@@ -42,32 +42,36 @@ def get_kraljic_quadrant(spend, risk, mean_spend, mean_risk):
     return "Non-Critical"
 
 def main():
+    # 1. Безопасная инициализация сессии
+    if 'supp' not in st.session_state: st.session_state.supp = "All Suppliers"
+    if 'time' not in st.session_state: st.session_state.time = "All Months"
+
     st.title("Sustainable Supply Chain: Category-Specific Kraljic Matrix")
     df = load_data()
     models = train_category_models(df)
 
     # --- SIDEBAR ---
     selected_cat = st.sidebar.selectbox("Select Product Category", sorted(df['Product_Category'].unique()))
-    selected_supplier = st.sidebar.selectbox(
-        "Select Supplier", 
-        ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()), 
-        key="supp",
-        index=["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()).index(st.session_state.supp) 
-        if st.session_state.supp in ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist()) else 0
-    )
-    selected_timeframe = st.sidebar.selectbox(
-        "Select Timeframe", 
-        ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()), 
-        key="time",
-        index=["All Months"] + sorted(df['Month'].astype(str).unique().tolist()).index(st.session_state.time)
-        if st.session_state.time in ["All Months"] + sorted(df['Month'].astype(str).unique().tolist()) else 0
-    )
     
     # Кнопка Reset
     if st.sidebar.button("Reset Selection"):
         st.session_state.supp = "All Suppliers"
         st.session_state.time = "All Months"
         st.rerun()
+
+    # 2. Безопасные списки для селекторов
+    supp_options = ["All Suppliers"] + sorted(df["Supplier_ID"].unique().tolist())
+    time_options = ["All Months"] + sorted(df['Month'].astype(str).unique().tolist())
+    
+    selected_supplier = st.sidebar.selectbox(
+        "Select Supplier", supp_options, key="supp",
+        index=supp_options.index(st.session_state.supp) if st.session_state.supp in supp_options else 0
+    )
+    
+    selected_timeframe = st.sidebar.selectbox(
+        "Select Timeframe", time_options, key="time",
+        index=time_options.index(st.session_state.time) if st.session_state.time in time_options else 0
+    )
 
     if 'weights' not in st.session_state: st.session_state['weights'] = [20, 20, 20, 20, 20]
     st.sidebar.header("Risk Weights")
@@ -78,7 +82,6 @@ def main():
     subset = df[(df['Product_Category'] == selected_cat)]
     if selected_timeframe != "All Months": subset = subset[subset['Month'].astype(str) == selected_timeframe]
     
-    # Проверка на пустые данные (No orders in selected period)
     if subset.empty:
         st.warning(f"No orders found for the selected category or period.")
         return
